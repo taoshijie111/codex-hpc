@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hpc": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/dist/cli.js", "serve"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

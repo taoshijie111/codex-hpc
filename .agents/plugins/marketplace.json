@@ -1,0 +1,20 @@
+{
+  "name": "codex-hpc-local",
+  "interface": {
+    "displayName": "Codex HPC"
+  },
+  "plugins": [
+    {
+      "name": "codex-hpc",
+      "source": {
+        "source": "local",
+        "path": "./release/codex-hpc"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

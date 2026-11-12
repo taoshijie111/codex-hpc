@@ -1,0 +1,17 @@
+{
+  "name": "codex-hpc",
+  "version": "0.1.0",
+  "description": "Manage SSH servers, persistent shells, Slurm jobs and resumable transfers locally in Codex.",
+  "author": { "name": "codex-hpc contributors" },
+  "license": "MIT",
+  "repository": "https://github.com/taoshijie111/codex-hpc",
+  "homepage": "https://github.com/taoshijie111/codex-hpc#readme",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "requires_local_executor": true,
+  "interface": {
+    "displayName": "Codex HPC",
+    "shortDescription": "SSH 服务器、远程作业与断点续传",
+    "longDescription": "本地 MCP 插件：服务器管理、持久 Shell、Slurm 和普通服务器作业、文件上传下载、资源查询及端口转发。需要 Node.js 24。"
+  }
+}

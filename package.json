@@ -1,0 +1,60 @@
+{
+  "name": "codex-hpc",
+  "version": "0.1.0",
+  "description": "Local MCP plugin for SSH servers, Slurm jobs and resumable file transfers in Codex",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/taoshijie111/codex-hpc.git"
+  },
+  "homepage": "https://github.com/taoshijie111/codex-hpc#readme",
+  "bugs": {
+    "url": "https://github.com/taoshijie111/codex-hpc/issues"
+  },
+  "keywords": [
+    "codex",
+    "codex-plugin",
+    "mcp",
+    "ssh",
+    "hpc",
+    "slurm",
+    "sftp"
+  ],
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "bin": {
+    "codex-hpc": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    ".codex-plugin",
+    ".mcp.json",
+    "README.md",
+    "NOTICE.md",
+    "LICENSE",
+    "examples"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
+    "package:plugin": "npm run build && node scripts/package-plugin.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "proper-lockfile": "4.1.2",
+    "ssh2": "1.17.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/ssh2": "^1.15.5",
+    "fflate": "^0.8.3",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3"
+  }
+}
