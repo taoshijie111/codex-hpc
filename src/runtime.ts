@@ -14,6 +14,7 @@ import {
 import { cancelJob, refreshJob, type JobRecord } from "./core/jobs.js";
 import { isTerminal, sleep, type CancelState } from "./core/watch.js";
 import { TransferManager } from "./transfers.js";
+import { resolveCredential } from "./credentials.js";
 
 export class HpcRuntime {
   readonly owner = randomUUID();
@@ -48,7 +49,7 @@ export class HpcRuntime {
     this.ctx = {
       store: this.store,
       secret: (name) => {
-        const value = process.env[name];
+        const { value } = resolveCredential(name);
         if (value) this.secrets.add(value);
         return value;
       },

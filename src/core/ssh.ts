@@ -33,7 +33,7 @@ export async function connect(
   const password = server.auth === "password" ? ctx.secret(envName) : undefined;
   if (server.auth === "password" && !password)
     throw new HpcError(
-      `Set environment variable ${envName} in the MCP process environment`,
+      `Credential ${envName} is missing. Set it in the MCP process environment (Codex env_vars); on Windows, a saved user environment variable is also supported. Run codex-hpc doctor to check availability without displaying its value.`,
       "CREDENTIAL_MISSING",
     );
   const privateKey =
@@ -43,7 +43,7 @@ export async function connect(
     : undefined;
   if (server.keyPassphraseEnv && !passphrase)
     throw new HpcError(
-      `Set environment variable ${server.keyPassphraseEnv}`,
+      `Credential ${server.keyPassphraseEnv} is missing. Set it in the MCP process environment (Codex env_vars) or Windows user environment, then run codex-hpc doctor.`,
       "CREDENTIAL_MISSING",
     );
   const code = options.verificationCode?.trim();

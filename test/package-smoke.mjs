@@ -61,7 +61,11 @@ test("packaged plugin runs outside the source tree with only packaged production
       undefined,
     );
     const archive = unzipSync(
-      readFileSync(resolve("release/codex-hpc-0.1.0-plugin.zip")),
+      readFileSync(
+        resolve(
+          `release/codex-hpc-${JSON.parse(readFileSync("package.json", "utf8")).version}-plugin.zip`,
+        ),
+      ),
     );
     assert.ok(archive["codex-hpc/.codex-plugin/plugin.json"]);
     assert.ok(archive["codex-hpc/node_modules/ssh2/package.json"]);

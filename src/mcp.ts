@@ -44,7 +44,7 @@ const port = z.number().int().min(1).max(65535);
 
 export function createMcpServer(runtime: HpcRuntime): McpServer {
   const mcp = new McpServer(
-    { name: "codex-hpc", version: "0.1.0" },
+    { name: "codex-hpc", version: "0.1.1" },
     {
       instructions:
         "Use server_list first. Run short commands in shell_run; submit compute work with job_submit. Jobs survive disconnect; shells, tunnels and local transfers belong to this MCP process. Use job_status or job_wait (at most 30 seconds); completion does not automatically wake Codex. Transfers are background by default; inspect transfer_status. Credentials are environment references. Never retry an uncertain submission with a new requestId.",

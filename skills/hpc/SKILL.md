@@ -5,7 +5,13 @@ description: Manage configured SSH servers, submit and inspect Slurm or bare-met
 
 Start with `server_list` to resolve a server ID. Configure inventory with
 `server_add`; pass environment variable names and absolute local key paths.
-Passwords and key passphrases belong in the MCP process environment, not tool arguments.
+Passwords and key passphrases are referenced by environment variable names, never tool arguments.
+The MCP process environment takes precedence. On Windows, missing process values fall
+back to the current user's saved environment, queried by the configured name only.
+If credentials are missing, use `codex-hpc doctor` to check availability/source without
+printing values. A terminal's environment is not proof that the MCP has the value.
+Do not work around credential failures by extracting passwords or bypassing the plugin.
+After changing plugin code, reload its MCP process before retrying connections.
 If connection reports MFA_REQUIRED, obtain a current code and use `server_connect(otp)`;
 OTP arguments may appear in the host transcript. Reuse the pooled connection afterwards.
 

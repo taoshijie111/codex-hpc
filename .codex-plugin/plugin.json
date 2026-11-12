@@ -1,6 +1,6 @@
 {
   "name": "codex-hpc",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Manage SSH servers, persistent shells, Slurm jobs and resumable transfers locally in Codex.",
   "author": { "name": "codex-hpc contributors" },
   "license": "MIT",

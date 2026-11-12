@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
 import { z } from "zod";
 import { HpcError, type Config, type ServerSpec } from "./core/types.js";
+import { resolveCredential } from "./credentials.js";
 
 const line = z
   .string()
@@ -166,7 +167,22 @@ export class ConfigStore {
           ? (s.passwordEnv ?? passwordEnvFor(s.id))
           : s.keyPassphraseEnv,
       ].filter((x): x is string => Boolean(x));
-      const missingEnv = envs.filter((name) => !process.env[name]);
+      const credentials = envs.map((name) => {
+        try {
+          const { value, source } = resolveCredential(name);
+          return { name, available: Boolean(value), source };
+        } catch {
+          return {
+            name,
+            available: false,
+            source: "unavailable" as const,
+            error: "CREDENTIAL_LOOKUP_FAILED",
+          };
+        }
+      });
+      const missingEnv = credentials
+        .filter((c) => !c.available)
+        .map((c) => c.name);
       let keyReadable = true;
       if (s.auth === "key") {
         try {
@@ -179,6 +195,7 @@ export class ConfigStore {
         id: s.id,
         ok: missingEnv.length === 0 && keyReadable,
         missingEnv,
+        credentials,
         keyReadable,
         hostKeyPinned: Boolean(s.hostKey),
       };

@@ -8,7 +8,7 @@
 
 ### A. 安装插件包
 
-从 [GitHub Releases](https://github.com/taoshijie111/codex-hpc/releases/latest) 下载并解压 `codex-hpc-0.1.0-plugin.zip`，其中的 `codex-hpc` 文件夹已含编译产物、生产依赖和 marketplace。无需运行 npm install 或构建。
+从 [GitHub Releases](https://github.com/taoshijie111/codex-hpc/releases/latest) 下载并解压 `codex-hpc-0.1.1-plugin.zip`，其中的 `codex-hpc` 文件夹已含编译产物、生产依赖和 marketplace。无需运行 npm install 或构建。
 
 ```powershell
 # 替换为解压后的绝对路径
@@ -94,7 +94,13 @@ node dist/cli.js doctor
 
 省略 `passwordEnv` 时，`cluster-a` 默认读取 `CODEX_HPC_CLUSTER_A_PASSWORD`。密钥模式设置 `auth: "key"` 和绝对路径 `keyPath`；加密私钥另配 `keyPassphraseEnv`。不支持在配置中写入密码或私钥内容。
 
-环境变量必须对 **MCP 子进程** 可见：在启动 Codex 的终端设置后启动，或配置 Codex 的 `env_vars`。已经运行的桌面应用不会自动获得其他终端中新设置的变量，应完全退出后重开。`doctor` 仅报告变量名是否缺失、密钥可读性及指纹配置状态，不输出秘密值；它不连接服务器。
+凭据优先读取 **MCP 子进程环境**。Codex 对 MCP 环境有独立的转发配置，终端能读取变量不代表插件也能读取；macOS／Linux 需在启动 Codex 的环境中设置变量，并通过 `env_vars` 转发。
+
+Windows 在进程环境缺少凭据时，会按配置的变量名读取当前 Windows 用户已保存的环境变量，支持桌面应用启动后才保存的值，无需把密码写入 Codex 配置。仅查询 `passwordEnv`／`keyPassphraseEnv` 指定的名称，不枚举其他变量，不读取系统级环境，不缓存回退值。若进程环境已含旧密码，它仍优先；修改后应重启 Codex 并重新连接。仅在某个终端临时设置的变量仍需通过 `env_vars` 转发。
+
+Windows 插件模式可直接使用上述用户级回退，不需要把任何密码加入 `.mcp.json` 或 `config.toml`。直接 MCP 注册方式可使用前文的 `env_vars`；插件模式的传输环境由宿主和插件启动配置决定。
+
+`doctor` 使用与 SSH 连接相同的凭据解析器，报告变量名、可用性及来源 `process`／`windows-user`／`missing`，以及密钥可读性和指纹配置状态，不输出秘密值，也不连接服务器。Windows 用户环境不可读时报告 `CREDENTIAL_LOOKUP_FAILED`，可检查 PowerShell 可用性或显式转发变量。升级插件后需重新加载 MCP 进程；已运行进程不会自动加载新代码。
 
 键盘交互 MFA 使用 `server_connect(server, otp)`。密码不会替代缺失的验证码。如果已提供 OTP、服务器没有发出交互提示且明确拒绝认证，最多额外尝试一次“密码＋验证码”，兼容原插件支持的网关。插件不持久化 OTP，**宿主仍可能记录工具参数或对话中的验证码**。
 
