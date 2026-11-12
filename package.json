@@ -35,13 +35,15 @@
     "README.md",
     "NOTICE.md",
     "LICENSE",
-    "examples"
+    "examples",
+    "scripts/check-codex.mjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
-    "package:plugin": "npm run build && node scripts/package-plugin.mjs"
+    "package:plugin": "npm run build && node scripts/package-plugin.mjs",
+    "check:codex": "node scripts/check-codex.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

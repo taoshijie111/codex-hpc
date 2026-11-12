@@ -40,6 +40,11 @@ for (const name of [
   "package-lock.json",
 ])
   cpSync(join(root, name), join(stage, name), { recursive: true });
+mkdirSync(join(stage, "scripts"), { recursive: true });
+cpSync(
+  join(root, "scripts/check-codex.mjs"),
+  join(stage, "scripts/check-codex.mjs"),
+);
 const npmCli =
   process.env.npm_execpath ||
   join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");

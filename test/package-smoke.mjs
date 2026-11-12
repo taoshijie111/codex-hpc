@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -33,15 +40,15 @@ test("packaged plugin runs outside the source tree with only packaged production
       "zod",
       "proper-lockfile",
     ])
-      assert.ok(require.resolve(dependency).startsWith(plugin));
+      assert.ok(require.resolve(dependency).startsWith(realpathSync(plugin)));
     const entry = JSON.parse(readFileSync(join(plugin, ".mcp.json"), "utf8"))
       .mcpServers.hpc;
-    const args = entry.args.map((a) => a.replaceAll("${PLUGIN_ROOT}", plugin));
+    const args = [...entry.args];
     args.push("--config", join(root, "config.json"));
     const transport = new StdioClientTransport({
       command: process.execPath,
       args,
-      cwd: plugin,
+      cwd: resolve(plugin, entry.cwd ?? "."),
       stderr: "pipe",
     });
     let stderr = "";

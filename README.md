@@ -149,6 +149,17 @@ transfer_status(transferId="transfer-...")
 
 任意远程 Shell／作业命令均可能修改远程系统，工具已标记为可能写入，审批仍由 Codex 的工具策略控制。SSH 私钥、环境变量及用户账户权限决定可访问范围。服务的标准输出只承载 MCP 协议，诊断使用标准错误。
 
+## 技能已加载，但没有远程工具
+
+技能文件被读取，并不代表 MCP 服务已经成功启动。安装后可执行以下诊断，通过 Codex 宿主检查是否实际发现 20 个 HPC 工具：
+
+```powershell
+node scripts/check-codex.mjs
+# 如果 PATH 中有多个 Codex 版本，将 CODEX_CLI_PATH 设置为桌面版自带的 codex 可执行文件
+```
+
+该检查不创建聊天、不调用模型，并使用空的临时 HPC 配置，不连接已配置服务器。若出现“目录名称无效 / os error 267”，应检查 `.mcp.json` 的工作目录。当前版本使用 `cwd: "."` 和相对入口路径，由 Codex 按插件目录解析，不依赖 legacy 清单中的 `${PLUGIN_ROOT}` 插值。更新安装后重开 Codex 会话，再检查 `/mcp` 中的 `hpc` 工具列表。
+
 ## 开发与验证
 
 ```powershell
