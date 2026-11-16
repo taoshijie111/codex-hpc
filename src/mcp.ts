@@ -9,6 +9,7 @@ import { execRemote } from "./core/ssh.js";
 import { resolveBackend, readJobLogs, submitJob } from "./core/jobs.js";
 import { isTerminal } from "./core/watch.js";
 import { sampleUsage } from "./usage.js";
+import { setupKey } from "./key-setup.js";
 
 const serverId = { server: z.string().min(1) };
 const localPath = z
@@ -44,10 +45,10 @@ const port = z.number().int().min(1).max(65535);
 
 export function createMcpServer(runtime: HpcRuntime): McpServer {
   const mcp = new McpServer(
-    { name: "codex-hpc", version: "0.1.1" },
+    { name: "codex-hpc", version: "0.2.0" },
     {
       instructions:
-        "Use server_list first. Run short commands in shell_run; submit compute work with job_submit. Jobs survive disconnect; shells, tunnels and local transfers belong to this MCP process. Use job_status or job_wait (at most 30 seconds); completion does not automatically wake Codex. Transfers are background by default; inspect transfer_status. Credentials are environment references. Never retry an uncertain submission with a new requestId.",
+        "Use server_list first. Run short commands in shell_run; submit compute work with job_submit. Jobs survive disconnect; shells, tunnels and local transfers belong to this MCP process. Use job_status or job_wait (at most 30 seconds); completion does not automatically wake Codex. Transfers are background by default; inspect transfer_status. Credentials are environment references. For known MFA register requiresOtp=true before requesting a fresh code. Authentication failures are terminal: do not retry automatically or call shell_run after failure. Use server_setup_key only after the user requests key login. Never retry an uncertain submission with a new requestId.",
     },
   );
   function tool<S extends z.ZodRawShape>(
@@ -86,6 +87,21 @@ export function createMcpServer(runtime: HpcRuntime): McpServer {
           };
         } catch (error) {
           const e = error as Error;
+          if (
+            e instanceof HpcError &&
+            e.code === "MFA_REQUIRED" &&
+            "server" in args &&
+            typeof args.server === "string"
+          ) {
+            // Persist the requirement, never the OTP, so the next session asks first.
+            await runtime.config
+              .update((c) => {
+                const server = c.servers.find((s) => s.id === args.server);
+                if (server) server.requiresOtp = true;
+                return c;
+              })
+              .catch(() => undefined);
+          }
           const result = runtime.clean({
             error: {
               code: e instanceof HpcError ? e.code : "OPERATION_FAILED",
@@ -163,19 +179,22 @@ export function createMcpServer(runtime: HpcRuntime): McpServer {
   );
   const connectShape = {
     ...serverId,
-    otp: z.string().min(1).max(128).optional(),
+    otp: z
+      .string()
+      .regex(/^\d{6}$/, "Use a freshly generated six-digit OTP")
+      .optional(),
   };
   tool(
     "server_connect",
-    "Open/reuse SSH. otp is a current MFA code; it is not persisted by this server (tool arguments can appear in the client transcript). First contact pins the host fingerprint.",
-    connectShape,
+    "Open/reuse SSH once. Prefer interactive password then OTP prompts; no auth fallback or automatic retry. otp must be a fresh six-digit code and is not persisted (host transcripts can contain tool arguments). After a failure, retryAuth=true is only for an explicitly user-authorized new attempt. First contact pins the host fingerprint.",
+    { ...connectShape, retryAuth: z.boolean().default(false) },
     false,
-    async ({ server, otp }) => {
+    async ({ server, otp, retryAuth }) => {
       runtime.rememberSecret(otp);
       const state = await runtime.pool.ensure(
         runtime.ctx,
         runtime.server(server),
-        { verificationCode: otp },
+        { verificationCode: otp, retryAuth },
       );
       runtime.resumeServer(server);
       return {
@@ -183,6 +202,16 @@ export function createMcpServer(runtime: HpcRuntime): McpServer {
         connected: state.alive,
         hostKeyFingerprint: state.fingerprint,
       };
+    },
+  );
+  tool(
+    "server_setup_key",
+    "After the user requests key login, generate/reuse a dedicated local key, authenticate once (fresh six-digit otp if needed), install its public key on the same connection, then verify key-only login exactly once. Switch config only on success. Never retries failed authentication; server policy may still require MFA. Private keys stay local.",
+    { ...connectShape, keyPath: localPath.optional() },
+    false,
+    async ({ server, otp, keyPath }) => {
+      runtime.rememberSecret(otp);
+      return setupKey(runtime, server, otp, keyPath);
     },
   );
   tool(

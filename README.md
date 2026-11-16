@@ -8,7 +8,7 @@
 
 ### A. 安装插件包
 
-从 [GitHub Releases](https://github.com/taoshijie111/codex-hpc/releases/latest) 下载并解压 `codex-hpc-0.1.1-plugin.zip`，其中的 `codex-hpc` 文件夹已含编译产物、生产依赖和 marketplace。无需运行 npm install 或构建。
+从 [GitHub Releases](https://github.com/taoshijie111/codex-hpc/releases/latest) 下载并解压 `codex-hpc-0.2.0-plugin.zip`，其中的 `codex-hpc` 文件夹已含编译产物、生产依赖和 marketplace。无需运行 npm install 或构建。
 
 ```powershell
 # 替换为解压后的绝对路径
@@ -102,7 +102,20 @@ Windows 插件模式可直接使用上述用户级回退，不需要把任何密
 
 `doctor` 使用与 SSH 连接相同的凭据解析器，报告变量名、可用性及来源 `process`／`windows-user`／`missing`，以及密钥可读性和指纹配置状态，不输出秘密值，也不连接服务器。Windows 用户环境不可读时报告 `CREDENTIAL_LOOKUP_FAILED`，可检查 PowerShell 可用性或显式转发变量。升级插件后需重新加载 MCP 进程；已运行进程不会自动加载新代码。
 
-键盘交互 MFA 使用 `server_connect(server, otp)`。密码不会替代缺失的验证码。如果已提供 OTP、服务器没有发出交互提示且明确拒绝认证，最多额外尝试一次“密码＋验证码”，兼容原插件支持的网关。插件不持久化 OTP，**宿主仍可能记录工具参数或对话中的验证码**。
+已知需要六位动态验证码的服务器，添加时设置 `requiresOtp: true`。缺少验证码时先在本地返回 `MFA_REQUIRED`，不会打开连接。连接使用 `server_connect(server, otp)`，应等验证码刚刷新再提供；工具优先使用 `keyboard-interactive`，在同一会话按提示分别提交密码和验证码。自动识别到 OTP 提示后也会记录 `requiresOtp`，不保存验证码。插件不持久化 OTP，**宿主仍可能记录工具参数或对话中的验证码**。
+
+密码、验证码被拒绝或提示重复时立即停止，绝不自动换方法、拼接验证码或新开连接重试。同一 MCP 进程会阻止后续工具（包括 Shell、状态监控）自动重复连接失败的账号，返回 `AUTH_RETRY_BLOCKED`。只有新的验证码、连接配置更新，或用户明确同意后 `server_connect(retryAuth: true)` 才允许下一次尝试；重启 MCP 会清除此内存保护，因此操作技能同样要求 agent 失败后停止。错误报告失败所在阶段，避免把未发送的验证码误判为过期。
+
+### 配置后续密钥登录
+
+用户明确要求后，可使用 `server_setup_key(server, otp?, keyPath?)`，无需现场编写临时 SSH 脚本：
+
+1. 先以 `requiresOtp: true` 注册，再不带 OTP 调用 `server_setup_key`，在本地预先生成专用 Ed25519 密钥，返回缺少验证码且不连接服务器。
+2. 等用户提供刚刷新的六位验证码，立即再次调用同一工具。私钥默认放在 `~/.ssh/codex_hpc_<server>_ed25519`，也可指定绝对 `keyPath`；已存在的私钥不会被覆盖。
+3. 在本次认证成功的同一连接中，把公钥追加到用户的 `authorized_keys`，保留原条目，不修改 sshd 或 MFA 策略。
+4. 单独进行一次只用公钥的验证，禁止密码／验证码回退。只有成功才将配置改为密钥模式。若服务器仍强制 MFA，返回 `keyOnlyVerified: false` 并保留原登录配置，不继续尝试。
+
+新私钥在 POSIX 上使用 `0600`，Windows 上限制为当前用户访问；不输出、不上传私钥。工具无需外部 ssh-keygen。`keyPath` 应使用专用的未加密本地密钥；已有加密密钥仍可通过 `server_add(auth: "key", keyPath, keyPassphraseEnv)` 使用。
 
 首次 SSH 握手采用 TOFU：在发送认证材料前把观察到的 `SHA256:…` 指纹写入配置。也可提前提供 `hostKey`。指纹变化时拒绝连接；核实远程服务器后手工更新配置，或通过 `server_add` 更新指纹。
 
@@ -157,7 +170,7 @@ transfer_status(transferId="transfer-...")
 
 ## 技能已加载，但没有远程工具
 
-技能文件被读取，并不代表 MCP 服务已经成功启动。安装后可执行以下诊断，通过 Codex 宿主检查是否实际发现 20 个 HPC 工具：
+技能文件被读取，并不代表 MCP 服务已经成功启动。安装后可执行以下诊断，通过 Codex 宿主检查是否实际发现 21 个 HPC 工具：
 
 ```powershell
 node scripts/check-codex.mjs

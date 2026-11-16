@@ -40,6 +40,7 @@ export const serverSchema = z
     port: z.number().int().min(1).max(65535).optional(),
     username: line,
     auth: z.enum(["password", "key"]),
+    requiresOtp: z.boolean().optional(),
     passwordEnv: envName.optional(),
     keyPath: line.optional(),
     keyPassphraseEnv: envName.optional(),

@@ -1,6 +1,8 @@
 import type { CoreContext } from "./context.js";
 import type { Client } from "ssh2";
 import { connect } from "./ssh.js";
+import { createHash } from "node:crypto";
+import { HpcError } from "./types.js";
 import type { ServerSpec } from "./types.js";
 
 export type ForwardInfo = {
@@ -51,13 +53,17 @@ export class ConnectionPool {
     { signature: string; promise: Promise<ConnectionState> }
   >();
   private readonly generations = new Map<string, number>();
+  private readonly failedAuth = new Map<
+    string,
+    { signature: string; otpHash?: string }
+  >();
 
   constructor(private readonly options: PoolOptions) {}
 
   async ensure(
     ctx: CoreContext,
     server: ServerSpec,
-    options: { verificationCode?: string } = {},
+    options: { verificationCode?: string; retryAuth?: boolean } = {},
   ): Promise<ConnectionState> {
     if (this.closed) throw new Error("Connection pool is closed");
     const signature = this.signature({
@@ -76,10 +82,37 @@ export class ConnectionPool {
       return existing;
     }
     if (existing) this.forget(server.id);
+    const previous = this.failedAuth.get(server.id);
+    const authSignature = this.signature({ ...server, hostKey: undefined });
+    const otpHash = options.verificationCode
+      ? createHash("sha256").update(options.verificationCode).digest("hex")
+      : undefined;
+    if (
+      previous?.signature === authSignature &&
+      !options.retryAuth &&
+      (!otpHash || otpHash === previous.otpHash)
+    )
+      throw new HpcError(
+        "Previous connection/authentication attempt failed. Automatic retry is blocked. Obtain a fresh OTP or ask the user before server_connect(retryAuth=true).",
+        "AUTH_RETRY_BLOCKED",
+      );
     const promise = this.open(ctx, server, options);
     this.pending.set(server.id, { signature, promise });
     try {
-      return await promise;
+      const result = await promise;
+      this.failedAuth.delete(server.id);
+      return result;
+    } catch (error) {
+      if (
+        [
+          "AUTH_FAILED",
+          "AUTH_PROMPT_UNSUPPORTED",
+          "MFA_REQUIRED",
+          "SSH_CONNECT_FAILED",
+        ].includes((error as HpcError).code)
+      )
+        this.failedAuth.set(server.id, { signature: authSignature, otpHash });
+      throw error;
     } finally {
       if (this.pending.get(server.id)?.promise === promise)
         this.pending.delete(server.id);
@@ -248,6 +281,7 @@ export class ConnectionPool {
   async closeAll(): Promise<void> {
     this.closed = true;
     this.holds.clear();
+    this.failedAuth.clear();
     for (const serverId of [...this.entries.keys()]) this.forget(serverId);
   }
 

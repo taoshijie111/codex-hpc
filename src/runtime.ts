@@ -248,6 +248,8 @@ export class HpcRuntime {
                 "CREDENTIAL_MISSING",
                 "HOST_KEY_CHANGED",
                 "AUTH_FAILED",
+                "AUTH_RETRY_BLOCKED",
+                "AUTH_PROMPT_UNSUPPORTED",
               ].includes((error as HpcError).code)
             ) {
               this.blockedWatchServers.add(record.server);

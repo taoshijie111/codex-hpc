@@ -55,7 +55,7 @@ test("packaged plugin runs outside the source tree with only packaged production
     transport.stderr.on("data", (c) => (stderr += c));
     client = new Client({ name: "package-test", version: "1" });
     await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length, 20);
+    assert.equal((await client.listTools()).tools.length, 21);
     assert.equal(
       (await client.callTool({ name: "server_list", arguments: {} })).isError,
       undefined,

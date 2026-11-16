@@ -26,14 +26,16 @@ async function fixture({ mfa = false, append = false } = {}) {
     config = new ConfigStore(join(root, "config.json")),
     clients = new Set(),
     answers = [];
-  let pinnedBeforeAuth = false;
+  let pinnedBeforeAuth = false,
+    connections = 0;
   const server = new Server({ hostKeys: [hostKey()] }, (client) => {
+    connections++;
     clients.add(client);
     client.on("error", () => {});
     client.on("close", () => clients.delete(client));
     client.on("authentication", (ctx) => {
       if (ctx.method === "none") {
-        ctx.reject(["password", "keyboard-interactive"]);
+        ctx.reject(mfa ? ["password", "keyboard-interactive"] : ["password"]);
         return;
       }
       pinnedBeforeAuth = Boolean(config.read().servers[0].hostKey);
@@ -97,6 +99,9 @@ async function fixture({ mfa = false, append = false } = {}) {
     runtime,
     config,
     answers,
+    get connections() {
+      return connections;
+    },
     get pinnedBeforeAuth() {
       return pinnedBeforeAuth;
     },
@@ -153,7 +158,7 @@ test("actual keyboard-interactive MFA never substitutes password for missing OTP
       f.runtime.pool.ensure(f.runtime.ctx, f.runtime.server("test")),
       (e) => e.code === "MFA_REQUIRED",
     );
-    assert.ok(f.answers.length);
+    assert.equal(f.answers.length, 0, "No blank or wrong code is submitted");
     assert.equal(f.answers.includes("test-password"), false);
     const connected = await f.runtime.pool.ensure(
       f.runtime.ctx,
@@ -166,15 +171,27 @@ test("actual keyboard-interactive MFA never substitutes password for missing OTP
     await f.close();
   }
 });
-test("password+OTP gateway gets a single fallback attempt without interactive prompts", async () => {
+test("password rejection never triggers concatenation fallback, and repeated tool calls are blocked", async () => {
   const f = await fixture({ append: true });
   try {
-    const state = await f.runtime.pool.ensure(
-      f.runtime.ctx,
-      f.runtime.server("test"),
-      { verificationCode: "123456" },
+    await assert.rejects(
+      f.runtime.pool.ensure(f.runtime.ctx, f.runtime.server("test"), {
+        verificationCode: "123456",
+      }),
+      (e) => e.code === "AUTH_FAILED",
     );
-    assert.equal(state.alive, true);
+    assert.equal(f.connections, 1);
+    await assert.rejects(
+      f.runtime.pool.ensure(f.runtime.ctx, f.runtime.server("test"), {
+        verificationCode: "123456",
+      }),
+      (e) => e.code === "AUTH_RETRY_BLOCKED",
+    );
+    await assert.rejects(
+      f.runtime.pool.ensure(f.runtime.ctx, f.runtime.server("test")),
+      (e) => e.code === "AUTH_RETRY_BLOCKED",
+    );
+    assert.equal(f.connections, 1);
   } finally {
     await f.close();
   }

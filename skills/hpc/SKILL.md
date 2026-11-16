@@ -12,8 +12,24 @@ If credentials are missing, use `codex-hpc doctor` to check availability/source 
 printing values. A terminal's environment is not proof that the MCP has the value.
 Do not work around credential failures by extracting passwords or bypassing the plugin.
 After changing plugin code, reload its MCP process before retrying connections.
-If connection reports MFA_REQUIRED, obtain a current code and use `server_connect(otp)`;
-OTP arguments may appear in the host transcript. Reuse the pooled connection afterwards.
+For a known six-digit MFA server, register `requiresOtp: true` before connecting.
+If the user requests key login, call `server_setup_key` without an OTP first to
+prepare the dedicated local key before asking for a newly refreshed code. Then
+immediately call `server_setup_key(server, otp)` once with the fresh code. It
+authenticates, appends the public key on the same connection, verifies key-only
+login once, and changes config only if that verification succeeds. Do not promise
+OTP-free access until `keyOnlyVerified` is true; server policy may still require MFA.
+Otherwise use `server_connect(server, otp)` once. Password and OTP can be two prompts
+within keyboard-interactive; the tool selects this before SSH password authentication.
+OTP arguments may appear in the host transcript. Never store codes or TOTP seeds.
+After an authentication/connection failure STOP. Do not call shell_run, server_test,
+or another tool to force a reconnect. Do not reuse a failed code, append it to a
+password, change authentication methods, or launch a manual SSH retry. Ask the user
+before any further attempt; `retryAuth: true` explicitly overrides the process's
+retry guard and must only be used with that authorization. A fresh user-provided
+OTP permits one new attempt. Prepare all local work before requesting a short-lived
+code. If a code was never submitted, explain that rather than blaming its expiry.
+Reuse the pooled connection after successful login.
 
 Use `shell_run` for short login-node work. Its named session preserves cwd,
 exports and module loads only while this MCP process lives. Timeout resets that

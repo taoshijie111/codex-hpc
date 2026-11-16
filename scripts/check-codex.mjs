@@ -89,7 +89,7 @@ try {
     error: server.toolsError ?? null,
   }));
   const ok = servers.some(
-    (s) => s.name === "hpc" && s.toolCount === 20 && !s.error,
+    (s) => s.name === "hpc" && s.toolCount === 21 && !s.error,
   );
   console.log(JSON.stringify({ ok, servers }));
   if (!ok) process.exitCode = 1;

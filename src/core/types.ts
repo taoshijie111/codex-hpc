@@ -11,6 +11,8 @@ export interface ServerSpec {
   port?: number;
   username: string;
   auth: AuthMode;
+  /** Known OTP requirement; avoids opening a connection without a fresh code. */
+  requiresOtp?: boolean;
   /** Credential reference name (POSIX identifier) holding the password. */
   passwordEnv?: string;
   /** Local private key path, for `auth: "key"`. */

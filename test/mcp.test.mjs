@@ -28,7 +28,7 @@ test("real stdio initialization, tools/list, validation, structured errors and c
     assert.equal(client.getServerVersion().name, "codex-hpc");
     assert.match(client.getInstructions(), /job_wait/);
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 20);
+    assert.equal(tools.length, 21);
     assert.equal(
       tools.find((x) => x.name === "shell_run").annotations.readOnlyHint,
       false,

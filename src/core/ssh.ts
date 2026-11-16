@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { Client, type ClientChannel, type ConnectConfig } from "ssh2";
 import type { CoreContext } from "./context.js";
-import { answerPrompts } from "./auth.js";
+import { isVerificationPrompt, promptText } from "./auth.js";
 import {
   HpcError,
   shellQuote,
@@ -22,6 +22,8 @@ export type ConnectOptions = {
   keepaliveIntervalMs?: number;
   expectedFingerprint?: string | null;
   verificationCode?: string;
+  /** For key provisioning verification: never answer password/OTP prompts. */
+  keyOnly?: boolean;
 };
 
 export async function connect(
@@ -29,6 +31,11 @@ export async function connect(
   server: ServerSpec,
   options: ConnectOptions,
 ): Promise<Connection> {
+  if (server.requiresOtp && !options.verificationCode && !options.keyOnly)
+    throw new HpcError(
+      `Server ${server.id} requires a fresh OTP; obtain it before connecting. No connection was opened.`,
+      "MFA_REQUIRED",
+    );
   const envName = server.passwordEnv ?? passwordEnvFor(server.id);
   const password = server.auth === "password" ? ctx.secret(envName) : undefined;
   if (server.auth === "password" && !password)
@@ -47,119 +54,192 @@ export async function connect(
       "CREDENTIAL_MISSING",
     );
   const code = options.verificationCode?.trim();
-  let sawPrompt = false;
-  const attempt = (effectivePassword: string | undefined) =>
-    new Promise<Connection>((resolve, reject) => {
-      const client = new Client();
-      let fingerprint = "",
-        specificError: HpcError | undefined,
-        finished = false,
-        needsCode = false;
-      const fail = (error: Error) => {
-        if (finished) return;
-        finished = true;
-        client.end();
-        reject(
-          specificError ??
-            new HpcError(
-              `Connection to ${server.id} failed: ${error.message}`,
-              (error as Error & { level?: string }).level ===
-                "client-authentication"
-                ? "AUTH_FAILED"
-                : "SSH_CONNECT_FAILED",
-            ),
-        );
-      };
-      const config: ConnectConfig = {
-        host: server.host,
-        port: server.port ?? 22,
-        username: server.username,
-        readyTimeout: options.connectTimeoutMs,
-        keepaliveInterval: options.keepaliveIntervalMs ?? 30000,
-        tryKeyboard: true,
-        ...(effectivePassword ? { password: effectivePassword } : {}),
-        ...(privateKey ? { privateKey } : {}),
-        ...(passphrase ? { passphrase } : {}),
-        hostVerifier: (rawKey: Buffer, verify: (ok: boolean) => void) => {
-          fingerprint = fingerprintOf(rawKey);
-          if (
-            options.expectedFingerprint &&
-            options.expectedFingerprint !== fingerprint
-          ) {
-            specificError = new HpcError(
-              `Host key for ${server.id} changed. Observed ${fingerprint}; verify before editing hostKey.`,
-              "HOST_KEY_CHANGED",
-            );
-            verify(false);
-            return;
-          }
-          if (options.expectedFingerprint) {
-            verify(true);
-            return;
-          }
-          void ctx.pinHost(server, fingerprint).then(
-            () => {
-              if (!finished) verify(true);
-            },
-            (error) => {
-              specificError =
-                error instanceof HpcError
-                  ? error
-                  : new HpcError(
-                      "Could not persist host fingerprint",
-                      "HOST_KEY_STORE_FAILED",
-                    );
-              if (!finished) verify(false);
-            },
-          );
-        },
-      };
-      client.on("error", fail);
-      client.once("close", () =>
-        fail(new Error("SSH connection closed before authentication")),
+  return new Promise<Connection>((resolve, reject) => {
+    const client = new Client();
+    let fingerprint = "",
+      specificError: HpcError | undefined,
+      finished = false,
+      passwordSent = false,
+      codeSent = false,
+      selected = false,
+      interactive = false;
+    let phase = "handshake";
+    const fail = (error: Error) => {
+      if (finished) return;
+      finished = true;
+      client.end();
+      reject(
+        specificError ??
+          new HpcError(
+            `Connection to ${server.id} failed during ${phase}: ${error.message}. No retry was made. Stop and check the authentication flow before requesting a fresh code.`,
+            (error as Error & { level?: string }).level ===
+              "client-authentication"
+              ? "AUTH_FAILED"
+              : "SSH_CONNECT_FAILED",
+          ),
       );
-      client.on(
-        "keyboard-interactive",
-        (_name, _instructions, _language, prompts, finish) => {
-          sawPrompt ||= prompts.length > 0;
-          const result = answerPrompts(prompts, {
-            secret: password ?? passphrase,
-            code,
-          });
-          needsCode ||= result.sawCodePrompt;
-          if (result.sawCodePrompt && !code)
-            specificError = new HpcError(
-              `Server ${server.id} needs a current one-time code. Call server_connect with otp.`,
-              "MFA_REQUIRED",
-            );
-          finish(result.answers);
-        },
-      );
-      client.once("ready", () => {
-        if (finished) return;
-        if (needsCode && !code) {
-          fail(specificError!);
+    };
+    const config: ConnectConfig = {
+      host: server.host,
+      port: server.port ?? 22,
+      username: server.username,
+      readyTimeout: options.connectTimeoutMs,
+      keepaliveInterval: options.keepaliveIntervalMs ?? 30000,
+      authHandler: (methods, partial, next) => {
+        if (methods === null) {
+          next({ type: "none", username: server.username });
           return;
         }
-        finished = true;
-        resolve({ client, fingerprint, close: () => client.end() });
-      });
-      client.connect(config);
+        if (!selected) {
+          selected = true;
+          if (privateKey && methods.includes("publickey")) {
+            phase = "publickey";
+            next({
+              type: "publickey",
+              username: server.username,
+              key: privateKey,
+              passphrase,
+            });
+            return;
+          }
+          // Both password and OTP prompts may belong to keyboard-interactive.
+          if (!privateKey && methods.includes("keyboard-interactive")) {
+            interactive = true;
+            phase = "interactive";
+            next({
+              type: "keyboard-interactive",
+              username: server.username,
+              prompt: answer,
+            });
+            return;
+          }
+          if (!privateKey && methods.includes("password")) {
+            passwordSent = true;
+            phase = "password";
+            next({
+              type: "password",
+              username: server.username,
+              password: password!,
+            });
+            return;
+          }
+        } else if (
+          partial &&
+          !interactive &&
+          !options.keyOnly &&
+          methods.includes("keyboard-interactive")
+        ) {
+          interactive = true;
+          phase = "interactive";
+          next({
+            type: "keyboard-interactive",
+            username: server.username,
+            prompt: answer,
+          });
+          return;
+        }
+        // A rejection is terminal. Never try another credential or append OTP.
+        next(false as never);
+      },
+      hostVerifier: (rawKey: Buffer, verify: (ok: boolean) => void) => {
+        fingerprint = fingerprintOf(rawKey);
+        if (
+          options.expectedFingerprint &&
+          options.expectedFingerprint !== fingerprint
+        ) {
+          specificError = new HpcError(
+            `Host key for ${server.id} changed. Observed ${fingerprint}; verify before editing hostKey.`,
+            "HOST_KEY_CHANGED",
+          );
+          verify(false);
+          return;
+        }
+        if (options.expectedFingerprint) {
+          verify(true);
+          return;
+        }
+        void ctx.pinHost(server, fingerprint).then(
+          () => {
+            if (!finished) verify(true);
+          },
+          (error) => {
+            specificError =
+              error instanceof HpcError
+                ? error
+                : new HpcError(
+                    "Could not persist host fingerprint",
+                    "HOST_KEY_STORE_FAILED",
+                  );
+            if (!finished) verify(false);
+          },
+        );
+      },
+    };
+    client.on("error", fail);
+    client.once("close", () =>
+      fail(new Error("SSH connection closed before authentication")),
+    );
+    function answer(
+      _name: string,
+      _instructions: string,
+      _language: string,
+      prompts: { prompt: string; echo: boolean }[],
+      finish: (answers: string[]) => void,
+    ) {
+      if (finished) return;
+      const answers: string[] = [];
+      for (const raw of prompts) {
+        const text = promptText(raw);
+        if (isVerificationPrompt(text)) {
+          phase = "otp";
+          if (!code || options.keyOnly) {
+            specificError = new HpcError(
+              `Server ${server.id} needs a fresh OTP. Call server_connect with otp; no empty code was submitted.`,
+              "MFA_REQUIRED",
+            );
+            fail(specificError);
+            return;
+          }
+          if (codeSent) {
+            specificError = new HpcError(
+              "Repeated OTP prompt; stopped without resubmitting the code",
+              "AUTH_FAILED",
+            );
+            fail(specificError);
+            return;
+          }
+          codeSent = true;
+          answers.push(code);
+        } else if (/password|passphrase|密码/i.test(text)) {
+          phase = "password";
+          if (passwordSent || !password || options.keyOnly) {
+            specificError = new HpcError(
+              "Repeated or unexpected password prompt; stopped without retry",
+              "AUTH_FAILED",
+            );
+            fail(specificError);
+            return;
+          }
+          passwordSent = true;
+          answers.push(password);
+        } else {
+          specificError = new HpcError(
+            "Unrecognized authentication prompt; no secret was submitted. Check the SSH client's prompt sequence.",
+            "AUTH_PROMPT_UNSUPPORTED",
+          );
+          fail(specificError);
+          return;
+        }
+      }
+      finish(answers);
+    }
+    client.once("ready", () => {
+      if (finished) return;
+      finished = true;
+      resolve({ client, fingerprint, close: () => client.end() });
     });
-  try {
-    return await attempt(password);
-  } catch (error) {
-    // Preserve gateways that accept password+OTP without an interactive prompt.
-    // Only one extra attempt, only after a definite authentication rejection.
-    if (
-      code &&
-      password &&
-      !sawPrompt &&
-      (error as HpcError).code === "AUTH_FAILED"
-    )
-      return attempt(password + code);
-    throw error;
-  }
+    client.connect(config);
+  });
 }
 
 /** One-off command, bounded in time and memory. Never used to own a compute job. */
@@ -171,14 +251,18 @@ export function execRemote(
     cwd?: string;
     signal?: AbortSignal;
     maxBytes?: number;
+    login?: boolean;
   },
 ): Promise<ExecResult> {
   const started = Date.now();
   if (options.signal?.aborted)
     return Promise.reject(new HpcError("Command cancelled", "CANCELLED"));
-  const wrapped = options.cwd
-    ? `cd ${shellQuote(options.cwd)} && bash -lc ${shellQuote(command)}`
-    : `bash -lc ${shellQuote(command)}`;
+  const wrapped =
+    options.login === false
+      ? command
+      : options.cwd
+        ? `cd ${shellQuote(options.cwd)} && bash -lc ${shellQuote(command)}`
+        : `bash -lc ${shellQuote(command)}`;
   return new Promise((resolve, reject) => {
     let settled = false,
       stdout = "",

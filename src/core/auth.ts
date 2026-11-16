@@ -73,7 +73,7 @@ export function formatAuthFailure(context: AuthFailureContext): string {
   const hint = context.codeProvided
     ? context.sawCodePrompt
       ? " The code was supplied but the server still rejected authentication (code may have expired or the password is wrong)."
-      : " The code was supplied but no verification-code prompt appeared; the server may expect the code appended to the password."
+      : " The code was supplied but no verification-code prompt appeared. Stop and check the authentication flow; do not append the code or retry automatically."
     : ` If this server requires a one-time code, ask the user for the current 6-digit code, then call server_connect(server: "${context.serverId}", otp: "<code>").`;
   return `Connection to "${context.serverId}" (${context.host}:${context.port}) failed: ${context.message}.${prompts}${hint}`;
 }
